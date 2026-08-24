@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>工作记录本</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- 顶部标题栏 -->
+    <header class="app-header">
+      <h1>📋 工作记录本</h1>
+      <div class="user-switcher">
+        <span class="user-switcher-label">👤 打卡人</span>
+        <select id="userSelect" class="user-select" title="切换当前打卡人"></select>
+        <button id="btnManageUsers" class="btn btn-sm" title="新增或删除打卡人">👥 管理</button>
+      </div>
+      <div class="header-actions">
+        <button id="btnViewMonth" class="btn btn-sm btn-active" title="月视图">📅 月</button>
+        <button id="btnViewYear" class="btn btn-sm" title="年视图">📊 年</button>
+        <span class="sep">|</span>
+        <button id="btnSettings" class="btn btn-sm" title="个性化设置">⚙️ 设置</button>
+        <button id="btnExportExcel" class="btn btn-sm" title="导出 Excel">📥 Excel</button>
+        <button id="btnExport" class="btn btn-sm" title="导出 JSON 备份">📤 备份</button>
+        <button id="btnImport" class="btn btn-sm" title="导入 JSON 备份">📥 恢复</button>
+        <button id="btnClearAll" class="btn btn-sm btn-danger-text" title="清除所有记录">🗑 清空</button>
+        <input type="file" id="importFile" accept=".json" style="display:none">
+      </div>
+    </header>
+
+    <!-- 月份导航（仅月视图） -->
+    <div class="month-nav" id="monthNav">
+      <button id="btnPrevMonth" class="btn-icon">◀</button>
+      <span id="currentMonth" class="month-title"></span>
+      <button id="btnNextMonth" class="btn-icon">▶</button>
+      <button id="btnToday" class="btn btn-sm">今天</button>
+    </div>
+
+    <!-- 年导航（仅年视图） -->
+    <div class="month-nav" id="yearNav" style="display:none">
+      <button id="btnPrevYear" class="btn-icon">◀</button>
+      <span id="currentYearTitle" class="month-title"></span>
+      <button id="btnNextYear" class="btn-icon">▶</button>
+    </div>
+
+    <!-- 图例 -->
+    <div class="legend" id="legendBar">
+      <span class="legend-item"><span class="dot dot-work"></span> 工作</span>
+      <span class="legend-item"><span class="dot dot-leave"></span> 请假</span>
+      <span class="legend-item"><span class="dot dot-holiday"></span> 放假</span>
+      <span class="legend-item"><span class="dot dot-note"></span> 备注</span>
+    </div>
+
+    <!-- 星期头（仅月视图） -->
+    <div class="weekdays" id="weekdaysRow">
+      <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+    </div>
+
+    <!-- 月视图 - 日历网格 -->
+    <div id="calendarGrid" class="calendar-grid"></div>
+
+    <!-- 年视图 - 12个月卡片 -->
+    <div id="yearView" class="year-view" style="display:none"></div>
+
+    <!-- 底部统计 -->
+    <footer class="stats-bar" id="statsBar"></footer>
+
+    <!-- 工资计算器 -->
+    <div class="calc-card" id="salaryArea">
+      <div class="calc-title">💰 工资计算器</div>
+      <div class="calc-row">
+        <label>月薪</label>
+        <input type="number" id="salaryMonthly" class="calc-input" value="4000" min="0" step="100">
+        <span class="calc-unit">元</span>
+      </div>
+      <div class="calc-row">
+        <label>工作天数</label>
+        <span class="calc-val" id="salaryWorkDays">0</span>
+        <span class="calc-unit">天 （<span id="salaryPeriodLabel">本月</span>共 <span id="salaryTotalDays">31</span> 天）</span>
+      </div>
+      <div class="calc-formula" id="calcFormula">实发 = (0 ÷ 31) × 4000</div>
+      <button id="btnRefreshSalary" class="calc-btn">💰 计算</button>
+      <div class="calc-result">
+        <span class="calc-result-label">实发工资</span>
+        <span class="calc-result-val" id="salaryAmount">¥ 0.00</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 编辑弹窗 ===== -->
+  <div id="editModal" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modalTitle"></h2>
+        <button id="btnCloseModal" class="btn-icon-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>标记类型：</label>
+          <div class="tag-buttons" id="tagButtons">
+            <button class="tag-btn tag-work" data-type="work">💼 工作</button>
+            <button class="tag-btn tag-leave" data-type="leave">🏥 请假</button>
+            <button class="tag-btn tag-holiday" data-type="holiday">🎉 放假</button>
+          </div>
+          <input type="hidden" id="selectedType" value="">
+        </div>
+        <div class="form-group">
+          <label for="txtNote">备注：</label>
+          <textarea id="txtNote" rows="4" placeholder="添加备注信息..."></textarea>
+        </div>
+        <div class="form-actions">
+          <button id="btnSave" class="btn btn-primary">💾 保存</button>
+          <button id="btnClear" class="btn btn-danger">🗑 清除标记</button>
+          <button id="btnCancel" class="btn btn-outline">取消</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 设置弹窗 ===== -->
+  <div id="settingsModal" class="modal-overlay" style="display:none">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>⚙️ 个性化设置</h2>
+        <button id="btnCloseSettings" class="btn-icon-close">✕</button>
+      </div>
+      <div class="modal-body settings-body">
+        <!-- 主题选择 -->
+        <div class="settings-section">
+          <h3>🎨 主题配色</h3>
+          <div class="theme-options" id="themeOptions">
+            <button class="theme-btn" data-theme="default" style="background:#4f6ef7"></button>
+            <button class="theme-btn" data-theme="ocean" style="background:#0ea5e9"></button>
+            <button class="theme-btn" data-theme="forest" style="background:#10b981"></button>
+            <button class="theme-btn" data-theme="sunset" style="background:#f59e0b"></button>
+            <button class="theme-btn" data-theme="rose" style="background:#e11d48"></button>
+            <button class="theme-btn" data-theme="violet" style="background:#8b5cf6"></button>
+            <button class="theme-btn" data-theme="slate" style="background:#64748b"></button>
+            <button class="theme-btn" data-theme="dark" style="background:#1e293b"></button>
+          </div>
+        </div>
+
+        <!-- 自定义颜色 -->
+        <div class="settings-section">
+          <h3>🔴 标记颜色自定义</h3>
+          <div class="color-custom-row">
+            <label>💼 工作</label>
+            <input type="color" id="colorWork" value="#3498db">
+            <input type="color" id="colorWorkBg" value="#ebf5fb" class="color-bg">
+          </div>
+          <div class="color-custom-row">
+            <label>🏥 请假</label>
+            <input type="color" id="colorLeave" value="#e67e22">
+            <input type="color" id="colorLeaveBg" value="#fef5e7" class="color-bg">
+          </div>
+          <div class="color-custom-row">
+            <label>🎉 放假</label>
+            <input type="color" id="colorHoliday" value="#e74c3c">
+            <input type="color" id="colorHolidayBg" value="#fdedec" class="color-bg">
+          </div>
+        </div>
+
+        <!-- 标记图标文本 -->
+        <div class="settings-section">
+          <h3>🏷️ 标记显示文本</h3>
+          <div class="label-custom-row">
+            <label>工作标签</label>
+            <input type="text" id="labelWork" value="💼 工作" maxlength="10">
+          </div>
+          <div class="label-custom-row">
+            <label>请假标签</label>
+            <input type="text" id="labelLeave" value="🏥 请假" maxlength="10">
+          </div>
+          <div class="label-custom-row">
+            <label>放假标签</label>
+            <input type="text" id="labelHoliday" value="🎉 放假" maxlength="10">
+          </div>
+        </div>
+
+        <!-- 日历显示 -->
+        <div class="settings-section">
+          <h3>📅 日历显示</h3>
+          <div class="setting-row">
+            <label>周起始日</label>
+            <select id="weekStart">
+              <option value="0">周日</option>
+              <option value="1">周一</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label>字体大小</label>
+            <select id="fontSize">
+              <option value="small">小</option>
+              <option value="normal" selected>标准</option>
+              <option value="large">大</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label>显示备注预览</label>
+            <input type="checkbox" id="showNotePreview" checked>
+          </div>
+          <div class="setting-row">
+            <label>备注预览字数</label>
+            <input type="number" id="notePreviewLen" value="6" min="2" max="20" style="width:60px">
+          </div>
+          <div class="setting-row">
+            <label>格子圆角</label>
+            <select id="cellRadius">
+              <option value="4">直角</option>
+              <option value="8" selected>小圆角</option>
+              <option value="14">大圆角</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 工资 -->
+        <div class="settings-section">
+          <h3>💰 工资设置</h3>
+          <div class="setting-row">
+            <label>默认月薪（元）</label>
+            <input type="number" id="monthlySalary" value="4000" min="0" max="999999" step="100" style="width:100px">
+          </div>
+          <p style="font-size:11px;color:var(--text-secondary);margin-top:4px">
+            新月份未单独设置时的兜底月薪。在日历底部的工资卡片中可以为每个月单独设置月薪。
+          </p>
+        </div>
+
+        <!-- 开机自启 -->
+        <div class="settings-section">
+          <h3>🚀 启动设置</h3>
+          <div class="setting-row">
+            <label>开机自动启动</label>
+            <input type="checkbox" id="autoLaunch" checked>
+          </div>
+        </div>
+
+        <!-- 默认值 -->
+        <div class="settings-section">
+          <h3>⚡ 默认行为</h3>
+          <div class="setting-row">
+            <label>默认标记类型</label>
+            <select id="defaultType">
+              <option value="">无</option>
+              <option value="work">工作</option>
+              <option value="leave">请假</option>
+              <option value="holiday">放假</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label>点击日期自动选默认类型</label>
+            <input type="checkbox" id="autoSelectDefault" checked>
+          </div>
+        </div>
+
+        <!-- 设置操作 -->
+        <div class="form-actions" style="margin-top:8px">
+          <button id="btnResetSettings" class="btn btn-outline">🔄 恢复默认</button>
+          <button id="btnSaveSettings" class="btn btn-primary">💾 保存设置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 打卡人管理弹窗 ===== -->
+  <div id="userModal" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>👥 管理打卡人</h2>
+        <button id="btnCloseUserModal" class="btn-icon-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="userList" class="user-list"></div>
+        <div class="add-user-row">
+          <input type="text" id="newUserName" class="user-name-input" placeholder="输入新打卡人姓名" maxlength="20">
+          <button id="btnAddUser" class="btn btn-primary">➕ 新增</button>
+        </div>
+        <p class="user-tip">每个打卡人的打卡记录相互独立；导出 Excel 时会将所有打卡人的当月记录合并到一张表中。</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
